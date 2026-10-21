@@ -37,14 +37,14 @@ with tab_bench:
             "metric": f"BPCER {v['bpcer']:.1%}" if "bpcer" in v else f"APCER {v['apcer']:.1%}",
             "caught by": ", ".join(f"{c} ({n})" for c, n in sorted(v["triggered_checks"].items(), key=lambda x: -x[1])),
         } for k, v in res.items()]
-        st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
         fig = go.Figure()
         for k, v in res.items():
             fig.add_trace(go.Box(y=v["risks"], name=k, boxpoints="all", jitter=0.4))
         fig.add_hline(y=0.35, line_dash="dot", annotation_text="pass below")
         fig.add_hline(y=0.60, line_dash="dot", annotation_text="reject above")
         fig.update_layout(height=420, yaxis_title="fused risk", showlegend=False, margin=dict(t=20))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
 with tab_inspect:
     c1, c2 = st.columns(2)
@@ -76,7 +76,7 @@ with tab_inspect:
             fig = go.Figure(go.Heatmap(z=10 * np.log10(S + 1e-12), x=t, y=f, colorscale="Viridis", showscale=False))
             fig.update_layout(height=320, title="Spectrogram — look for a hard ceiling (upsampled audio) or empty gaps (digital silence)",
                               yaxis_title="Hz", xaxis_title="s", margin=dict(t=40))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
 with tab_pulse:
     st.caption("rPPG pulse recovered from synthetic face traces. A live face shows one clean peak shared by all regions.")
@@ -92,6 +92,6 @@ with tab_pulse:
     band = (f > 0.5) & (f < 4)
     fig = go.Figure(go.Scatter(x=f[band] * 60, y=p[band], fill="tozeroy"))
     fig.update_layout(height=300, xaxis_title="bpm", yaxis_title="power", margin=dict(t=20))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     for r in pr.reasons:
         st.warning(r)
