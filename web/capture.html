@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Liveness Check</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --ink: #14171c; --muted: #5d6673; --line: #e2e5ea;
+    --accent: #1f5eff; --ok: #12805c; --warn: #b26a00; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1216; --card: #171b21; --ink: #e9edf2; --muted: #98a2b0; --line: #2a313b;
+            --accent: #6b93ff; --ok: #3ccf95; --warn: #f0a840; --bad: #ff6b6b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p.sub { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .stage { position: relative; aspect-ratio: 4/3; background: #000; border-radius: 10px; overflow: hidden; }
+  video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+  .oval { position: absolute; inset: 12% 28%; border: 3px dashed rgba(255,255,255,.55); border-radius: 50%; pointer-events: none; }
+  .cue { position: absolute; left: 0; right: 0; bottom: 18px; text-align: center; font-size: 28px; font-weight: 700;
+         color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,.8); min-height: 40px; }
+  .bar { height: 6px; background: var(--line); border-radius: 3px; margin: 12px 0; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .1s linear; }
+  button { font: inherit; font-weight: 600; padding: 10px 18px; border-radius: 8px; border: 0; background: var(--accent); color: #fff; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  #status { color: var(--muted); }
+  .verdict { font-size: 20px; font-weight: 700; margin: 16px 0 8px; }
+  .PASS { color: var(--ok); } .STEP_UP { color: var(--warn); } .REJECT { color: var(--bad); }
+  ul.checks { list-style: none; padding: 0; margin: 0; }
+  ul.checks li { border-top: 1px solid var(--line); padding: 10px 0; }
+  .pill { display: inline-block; font-size: 12px; font-weight: 700; text-transform: uppercase; padding: 1px 8px; border-radius: 99px; margin-right: 8px; }
+  .pill.pass { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+  .pill.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+  .pill.fail { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); }
+  .reason { color: var(--muted); font-size: 14px; margin: 2px 0 0 4px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Liveness check</h1>
+  <p class="sub">Keep your face inside the oval in even light. When a word appears, say it out loud. When an arrow appears, turn your head that way and back.</p>
+  <div class="card">
+    <div class="stage">
+      <video id="preview" autoplay muted playsinline></video>
+      <div class="oval"></div>
+      <div class="cue" id="cue"></div>
+    </div>
+    <div class="bar"><i id="progress"></i></div>
+    <div class="row">
+      <button id="start">Start check</button>
+      <span id="status">Camera and microphone access is needed.</span>
+    </div>
+    <div id="result"></div>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Records raw PCM; browser voice processing is disabled because noise suppression
+// erases the very microphone noise floor the server checks for.
+const WORKLET = `class Tap extends AudioWorkletProcessor {
+  process(inputs) { const ch = inputs[0][0]; if (ch) this.port.postMessage(ch.slice(0)); return true; }
+} registerProcessor('tap', Tap);`;
+
+function encodeWav(chunks, sampleRate) {
+  const length = chunks.reduce((n, c) => n + c.length, 0);
+  const buf = new ArrayBuffer(44 + length * 2);
+  const v = new DataView(buf);
+  const str = (o, s) => [...s].forEach((ch, i) => v.setUint8(o + i, ch.charCodeAt(0)));
+  str(0, "RIFF"); v.setUint32(4, 36 + length * 2, true); str(8, "WAVE"); str(12, "fmt ");
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sampleRate, true); v.setUint32(28, sampleRate * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true); str(36, "data"); v.setUint32(40, length * 2, true);
+  let o = 44;
+  for (const c of chunks) for (let i = 0; i < c.length; i++, o += 2) {
+    const s = Math.max(-1, Math.min(1, c[i]));
+    v.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Blob([buf], { type: "audio/wav" });
+}
+
+function cueText(c) {
+  if (c.kind === "speak") return `Say: “${c.value.toUpperCase()}”`;
+  return c.value === "left" ? "← Turn your head left" : "Turn your head right →";
+}
+
+function render(res) {
+  const label = { PASS: "Verified", STEP_UP: "Needs manual review", REJECT: "Not verified" }[res.decision];
+  const items = res.checks.map((c) => `
+    <li><span class="pill ${c.status}">${c.status}</span><strong>${c.name}</strong>
+      ${c.risk === null ? "" : `<span style="color:var(--muted)"> · risk ${c.risk.toFixed(2)}</span>`}
+      ${c.reasons.map((r) => `<div class="reason">${r}</div>`).join("")}</li>`).join("");
+  $("result").innerHTML = `<div class="verdict ${res.decision}">${label}</div><ul class="checks">${items}</ul>`;
+}
+
+async function run() {
+  $("start").disabled = true;
+  $("result").innerHTML = "";
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 640, height: 480, frameRate: 30, facingMode: "user" },
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
+    });
+  } catch (e) {
+    $("status").textContent = "Could not open camera/microphone: " + e.message;
+    $("start").disabled = false;
+    return;
+  }
+  $("preview").srcObject = stream;
+  $("status").textContent = "Get ready…";
+  const ch = await (await fetch("/v1/challenge", { method: "POST" })).json();
+  await sleep(1200);
+
+  const ctx = new AudioContext();
+  await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" })));
+  const tap = new AudioWorkletNode(ctx, "tap");
+  const chunks = [];
+  tap.port.onmessage = (e) => chunks.push(e.data);
+  ctx.createMediaStreamSource(stream).connect(tap);
+
+  const videoStream = new MediaStream(stream.getVideoTracks());
+  const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp8") ? "video/webm;codecs=vp8" : "video/webm";
+  const rec = new MediaRecorder(videoStream, { mimeType: mime, videoBitsPerSecond: 2_500_000 });
+  const parts = [];
+  rec.ondataavailable = (e) => e.data.size && parts.push(e.data);
+  const stopped = new Promise((r) => (rec.onstop = r));
+  rec.start(500);
+
+  const t0 = performance.now();
+  $("status").textContent = "Recording…";
+  await new Promise((done) => {
+    const tick = () => {
+      const t = (performance.now() - t0) / 1000;
+      $("progress").style.width = Math.min(100, (t / ch.duration) * 100) + "%";
+      const active = ch.cues.find((c) => t >= c.t && t < c.t + 2.0);
+      $("cue").textContent = active ? cueText(active) : "";
+      if (t >= ch.duration) return done();
+      requestAnimationFrame(tick);
+    };
+    tick();
+  });
+  rec.stop();
+  await stopped;
+  const elapsed = (performance.now() - t0) / 1000;
+  await ctx.close();
+  stream.getTracks().forEach((t) => t.stop());
+  $("cue").textContent = "";
+
+  $("status").textContent = "Checking…";
+  const form = new FormData();
+  form.append("token", ch.token);
+  form.append("duration", elapsed.toFixed(3));
+  form.append("audio", encodeWav(chunks, ctx.sampleRate), "audio.wav");
+  form.append("video", new Blob(parts, { type: "video/webm" }), "video.webm");
+  const resp = await fetch("/v1/verify", { method: "POST", body: form });
+  const body = await resp.json();
+  if (!resp.ok) {
+    $("status").textContent = body.detail || "Verification failed";
+  } else {
+    $("status").textContent = "Done.";
+    render(body);
+  }
+  $("start").disabled = false;
+  $("start").textContent = "Try again";
+}
+
+$("start").addEventListener("click", run);
+</script>
+</body>
+</html>
