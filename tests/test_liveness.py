@@ -1,7 +1,6 @@
 import io
 import time
 
-import numpy as np
 import pytest
 import soundfile as sf
 from fastapi.testclient import TestClient

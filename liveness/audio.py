@@ -17,7 +17,7 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 from scipy import signal
-from scipy.fft import dct, rfft, rfftfreq
+from scipy.fft import dct, rfft
 
 ANALYSIS_SR = 16000
 EPS = 1e-12

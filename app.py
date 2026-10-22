@@ -14,7 +14,7 @@ from scipy.signal import spectrogram
 from liveness import synth
 from liveness.audio import AudioAnalyzer, load_audio
 from liveness.pipeline import evaluate
-from liveness.redteam import SCENARIOS, run
+from liveness.redteam import run
 from liveness.rppg import analyze_traces, extract_video, spectrum
 
 st.set_page_config(page_title="KYC Liveness Guard", layout="wide")
