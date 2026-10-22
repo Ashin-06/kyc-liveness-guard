@@ -120,7 +120,9 @@ async function run() {
   await sleep(1200);
 
   const ctx = new AudioContext();
-  await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" })));
+  const workletUrl = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
+  await ctx.audioWorklet.addModule(workletUrl);
+  URL.revokeObjectURL(workletUrl);
   const tap = new AudioWorkletNode(ctx, "tap");
   const chunks = [];
   tap.port.onmessage = (e) => chunks.push(e.data);
@@ -150,6 +152,7 @@ async function run() {
   rec.stop();
   await stopped;
   const elapsed = (performance.now() - t0) / 1000;
+  const sampleRate = ctx.sampleRate;
   await ctx.close();
   stream.getTracks().forEach((t) => t.stop());
   $("cue").textContent = "";
@@ -158,7 +161,7 @@ async function run() {
   const form = new FormData();
   form.append("token", ch.token);
   form.append("duration", elapsed.toFixed(3));
-  form.append("audio", encodeWav(chunks, ctx.sampleRate), "audio.wav");
+  form.append("audio", encodeWav(chunks, sampleRate), "audio.wav");
   form.append("video", new Blob(parts, { type: "video/webm" }), "video.webm");
   const resp = await fetch("/v1/verify", { method: "POST", body: form });
   const body = await resp.json();
