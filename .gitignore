@@ -2,6 +2,8 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .venv/
-models/
+models/*
 *.joblib
+# trained on ASVspoof 2019 LA (ODC-By); kept because rebuilding it needs a 2.6 GB download
+!models/voice_model_asvspoof.joblib
 .streamlit/secrets.toml
