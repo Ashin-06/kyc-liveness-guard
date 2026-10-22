@@ -248,23 +248,28 @@ def rule_risk(feats: dict) -> tuple[float, list[str]]:
 
 
 class AudioAnalyzer:
-    """Rule-based by default; uses a trained classifier when a model file is present."""
+    """Rule-based by default; uses a trained classifier when a model file is present.
 
-    def __init__(self, model_path: str | Path | None = None):
-        self.model = None
-        if model_path and Path(model_path).exists():
-            import joblib
+    `narrowband_model_path` is a model trained on real 16 kHz speech (ASVspoof 2019 LA, see
+    realdata.py). It is used for audio at 16 kHz or below, the phone and app channel it was
+    validated on; wideband browser capture keeps `model_path`."""
 
-            self.model = joblib.load(model_path)
+    def __init__(self, model_path: str | Path | None = None, narrowband_model_path: str | Path | None = None):
+        import joblib
+
+        self.model = joblib.load(model_path) if model_path and Path(model_path).exists() else None
+        nb = narrowband_model_path
+        self.narrowband = joblib.load(nb) if nb and Path(nb).exists() else None
 
     def analyze(self, x: np.ndarray, sr: int) -> AudioReport:
         feats = extract_features(x, sr)
         risk, reasons = rule_risk(feats)
-        if self.model is None:
+        model, source = (self.narrowband, "16k model+rules") if sr <= ANALYSIS_SR and self.narrowband else (self.model, "model+rules")
+        if model is None:
             return AudioReport(feats, risk, reasons, "rules")
-        p = float(self.model.predict_proba(feature_vector(feats)[None, :])[0, 1])
+        p = float(model.predict_proba(feature_vector(feats)[None, :])[0, 1])
         # keep rule reasons as explanation; blend so hard artifacts still count
-        return AudioReport(feats, 0.7 * p + 0.3 * risk, reasons, "model+rules")
+        return AudioReport(feats, 0.7 * p + 0.3 * risk, reasons, source)
 
 
 def voice_activity(x: np.ndarray, sr: int, hop: float = 0.010) -> np.ndarray:

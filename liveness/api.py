@@ -21,7 +21,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 secret = os.environ.get("LIVENESS_SECRET")
 challenges = ChallengeService(bytes.fromhex(secret) if secret else None)
-analyzer = AudioAnalyzer(os.environ.get("LIVENESS_MODEL", ROOT / "models" / "voice_model.joblib"))
+analyzer = AudioAnalyzer(os.environ.get("LIVENESS_MODEL", ROOT / "models" / "voice_model.joblib"),
+                         os.environ.get("LIVENESS_MODEL_16K", ROOT / "models" / "voice_model_asvspoof.joblib"))
 app = FastAPI(title="KYC Liveness Guard", version="1.0")
 
 
@@ -58,7 +59,8 @@ def index():
 
 @app.get("/healthz")
 def health():
-    return {"ok": True, "voice_engine": "model+rules" if analyzer.model else "rules"}
+    return {"ok": True, "voice_engine": "model+rules" if analyzer.model else "rules",
+            "voice_engine_16k": "ASVspoof model+rules" if analyzer.narrowband else "same as above"}
 
 
 @app.post("/v1/challenge")

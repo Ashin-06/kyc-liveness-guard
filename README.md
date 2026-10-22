@@ -36,11 +36,28 @@ Two attackers in the benchmark adapt to the defence:
 
 The benchmark is synthetic: voices come from a source-filter model and faces are RGB traces. Treat these numbers as a regression suite, not a field accuracy claim. Before deploying, measure on your own capture channel (see Calibration).
 
+## On real speech: ASVspoof 2019
+
+The voice check was then measured on real speech and real attacks with [ASVspoof 2019 LA](https://datashare.ed.ac.uk/handle/10283/3336) (ODC-By). Training uses the 25,380-clip train split, whose spoofs come from attacks A01–A06. Testing uses 15,831 clips (2 of the 9 eval shards, about a fifth) whose spoofs come from attacks A07–A19, most of which never appear in training. That is the position a bank is in when a new cloning tool comes out. Command: `python -m liveness realdata`; results in `results/real_data.json`.
+
+| Voice model | Equal error rate | AUC |
+|---|---|---|
+| Shipped model, trained on the synthetic voices above | **50.5%** (chance) | 0.50 |
+| Same 37 features, trained on ASVspoof (`models/voice_model_asvspoof.joblib`) | **15.0%** | 0.93 |
+| *Published ASVspoof baselines, full eval set: LFCC-GMM / CQCC-GMM* | *8.1% / 9.6%* | |
+
+What this means:
+- **The synthetic voice benchmark says nothing about real deepfakes.** The model trained on synthetic voices is at chance on real ones.
+- **Trained on real speech, the hand-crafted features catch most unseen attacks**, but still trail the published spectral baselines. A learned front end (for example LFCC or SSL embeddings) is the next step.
+- **The real-speech model is used where it was validated:** `AudioAnalyzer` switches to it for audio at 16 kHz or below, the phone and app channel (`LIVENESS_MODEL_16K`).
+- **The 48 kHz browser capture keeps the original model.** Before relying on it, calibrate it on recordings from your own channel.
+- **The face signals (pulse and lip sync) are still tested only on synthetic traces.** The public rPPG video datasets need a request form or tens of GB of video.
+
 ## Quick start
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q                       # 7 tests
+python -m pytest -q                       # 9 tests
 python -m liveness redteam --trials 20    # attack benchmark
 python -m liveness serve --port 8001      # API + capture page
 ```
@@ -91,6 +108,9 @@ python -m liveness train --asvspoof ASVspoof2019.LA.cm.train.trn.txt LA/ASVspoof
 
 # or a synthetic corpus to exercise the pipeline
 python -m liveness train --synthetic 600
+
+# or the Hugging Face parquet mirrors of ASVspoof 2019 LA (train split + eval shards)
+python -m liveness realdata --train train-00000-of-00001.parquet --eval test-00000-of-00009.parquet test-00001-of-00009.parquet
 ```
 
 The training script reports AUC and EER on a held-out split.
@@ -121,6 +141,7 @@ liveness/
   synth.py      synthetic genuine sessions and attacks
   redteam.py    benchmark with APCER/BPCER
   train.py      classifier training (ASVspoof or synthetic)
+  realdata.py   train/test on ASVspoof 2019 LA parquet, writes the 16 kHz model
   api.py        FastAPI service
 web/capture.html  browser capture flow
 app.py            Streamlit dashboard

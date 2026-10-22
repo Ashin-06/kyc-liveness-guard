@@ -1,0 +1,21 @@
+{
+  "dataset": "ASVspoof 2019 LA: train split (attacks A01-A06) -> eval split (attacks A07-A19)",
+  "train_clips": 25380,
+  "train_bonafide": 2580,
+  "eval_clips": 15831,
+  "eval_bonafide": 1667,
+  "trained_on_asvspoof": {
+    "eer": 0.1497,
+    "auc": 0.9257
+  },
+  "published_baselines_eer": {
+    "LFCC-GMM": 0.0809,
+    "CQCC-GMM": 0.0957
+  },
+  "note": "Evaluation uses 2 of the 9 eval shards (about a fifth of the eval set); the published baselines are on the full set. Same 37 hand-crafted features as the live system, gradient boosting.",
+  "shipped_synthetic_model": {
+    "eer": 0.5049,
+    "auc": 0.4976
+  },
+  "saved_model": "voice_model_asvspoof.joblib"
+}

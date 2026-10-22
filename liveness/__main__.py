@@ -4,6 +4,7 @@
     python -m liveness audio sample.wav
     python -m liveness video selfie.mp4 [--audio sample.wav]
     python -m liveness train [--asvspoof PROTOCOL AUDIO_DIR]
+    python -m liveness realdata --train train.parquet --eval test-0000*.parquet   # ASVspoof 2019 LA parquet
     python -m liveness serve --port 8001
 """
 from __future__ import annotations
@@ -31,6 +32,7 @@ def main(argv=None):
     v.add_argument("--audio")
     v.add_argument("--duration", type=float)
     sub.add_parser("train", help="train the voice classifier", add_help=False)
+    sub.add_parser("realdata", help="train/test on ASVspoof 2019 LA parquet files", add_help=False)
     s = sub.add_parser("serve", help="run the HTTP API")
     s.add_argument("--port", type=int, default=8001)
     s.add_argument("--host", default="127.0.0.1")
@@ -56,6 +58,10 @@ def main(argv=None):
         from .train import main as train
 
         train(rest)
+    elif args.cmd == "realdata":
+        from .realdata import main as realdata
+
+        realdata(rest)
     elif args.cmd == "serve":
         import uvicorn
 
