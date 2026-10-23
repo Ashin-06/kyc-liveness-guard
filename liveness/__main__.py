@@ -5,6 +5,7 @@
     python -m liveness video selfie.mp4 [--audio sample.wav]
     python -m liveness train [--asvspoof PROTOCOL AUDIO_DIR]
     python -m liveness realdata --train train.parquet --eval test-0000*.parquet   # ASVspoof 2019 LA parquet
+    python -m liveness realface --mcd mcd_rppg/ --cache traces.pkl                   # MCD-rPPG webcam faces
     python -m liveness serve --port 8001
 """
 from __future__ import annotations
@@ -33,6 +34,7 @@ def main(argv=None):
     v.add_argument("--duration", type=float)
     sub.add_parser("train", help="train the voice classifier", add_help=False)
     sub.add_parser("realdata", help="train/test on ASVspoof 2019 LA parquet files", add_help=False)
+    sub.add_parser("realface", help="pulse check on real faces (MCD-rPPG)", add_help=False)
     s = sub.add_parser("serve", help="run the HTTP API")
     s.add_argument("--port", type=int, default=8001)
     s.add_argument("--host", default="127.0.0.1")
@@ -62,6 +64,10 @@ def main(argv=None):
         from .realdata import main as realdata
 
         realdata(rest)
+    elif args.cmd == "realface":
+        from .realface import main as realface
+
+        realface(rest)
     elif args.cmd == "serve":
         import uvicorn
 

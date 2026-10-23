@@ -20,19 +20,19 @@ The challenge needs no speech recognition. The server picks *when* each cue appe
 ```
 scenario                    pass  step   rej   risk  metric
 ----------------------------------------------------------------
-bona_fide                     20     0     0   0.11  BPCER 0.0%
-photo_tts                      0     0    20   0.94  APCER 0.0%
-screen_replay                  0     0    20   0.27  APCER 0.0%
-faceswap_clone                 0     1    19   0.68  APCER 0.0%
-clone_noise_masked             0     1    19   0.65  APCER 0.0%
-virtual_cam_old_session        0     0    20   0.08  APCER 0.0%
+bona_fide                     19     1     0   0.10  BPCER 5.0%
+photo_tts                      0     0    20   0.89  APCER 0.0%
+screen_replay                  0     0    20   0.20  APCER 0.0%
+faceswap_clone                 2    10     8   0.50  APCER 10.0%
+clone_noise_masked             0     2    18   0.64  APCER 0.0%
+virtual_cam_old_session        0     0    20   0.09  APCER 0.0%
 ```
 
 APCER and BPCER follow ISO/IEC 30107-3. APCER is the share of attacks accepted; BPCER is the share of genuine users not accepted.
 
 Two attackers in the benchmark adapt to the defence:
 - **`clone_noise_masked`** adds fake room noise to hide digital silence. The spectral edge and pitch jitter still catch it.
-- **`faceswap_clone`** follows the cues live. Timing alone can't catch it, so the missing pulse and the voice artifacts do.
+- **`faceswap_clone`** follows the cues live. Timing alone can't catch it, so the missing pulse and the voice artifacts have to. With the pulse thresholds calibrated on real webcams (below), 2 of 20 get through and 10 are held for review. Before that calibration all 20 were stopped, but the same settings rejected two thirds of real people.
 
 The benchmark is synthetic: voices come from a source-filter model and faces are RGB traces. Treat these numbers as a regression suite, not a field accuracy claim. Before deploying, measure on your own capture channel (see Calibration).
 
@@ -51,13 +51,43 @@ What this means:
 - **Trained on real speech, the hand-crafted features catch most unseen attacks**, but still trail the published spectral baselines. A learned front end (for example LFCC or SSL embeddings) is the next step.
 - **The real-speech model is used where it was validated:** `AudioAnalyzer` switches to it for audio at 16 kHz or below, the phone and app channel (`LIVENESS_MODEL_16K`).
 - **The 48 kHz browser capture keeps the original model.** Before relying on it, calibrate it on recordings from your own channel.
-- **The face signals (pulse and lip sync) are still tested only on synthetic traces.** The public rPPG video datasets need a request form or tens of GB of video.
+
+## On real faces: MCD-rPPG and GRID
+
+`python -m liveness realface`; results in `results/real_face.json`.
+
+**Pulse, [MCD-rPPG](https://huggingface.co/datasets/kyegorov/mcd_rppg)** (Egorov et al., ACM MM 2025; CC BY 4.0): frontal webcam recordings (640×480, 30 fps) of 20 people at rest and after exercise, with a finger PPG synchronised to every frame. It was used for pulse estimation only, which is what the dataset is published for. Two 15-second windows per recording were scored as live; that is about the length of a KYC capture. Three photo attacks were built from a frame of each recording: the still frame with sensor noise, the same under a lamp flickering at 72 bpm, and under a green-tinted flicker aimed at the pulse method.
+
+- **Heart rate is right.** On 80 clips, the median error against the finger PPG is 0.9 bpm, and 76% of clips are within 5 bpm. The mean error, 6.8 bpm, comes from a few clips where the estimate locked onto a harmonic.
+- **The shipped thresholds rejected most real people.** Real webcam faces have a pulse SNR around −0.8 dB, against the 1.0 dB the thresholds expected. The forehead and cheeks disagree by a median 12 bpm, because the cheek patches are small at this resolution. With the old settings, 67.5% of live clips on held-out subjects failed.
+- **What changed.** `SNR_LIVE_DB` and `BPM_AGREEMENT` were reset on 10 subjects so that at most 10% of their live clips fail. A new check rejects a pulse that also shows up in the background (the two top corners of the frame): blood only colours skin, while a lamp or screen colours the room. All numbers below are on the other 10 subjects.
+
+| Held-out subjects | Pass | Review | Reject |
+|---|---|---|---|
+| Live faces, old thresholds | 12.5% | 20% | 67.5% |
+| Live faces, recalibrated | 57.5% | 27.5% | 15% |
+| Photo | 5% | 35% | 60% |
+| Photo under a white lamp flickering at 72 bpm | 30% | 5% | 65% |
+| Photo under a green-tinted flicker at 72 bpm | 100% → **0%** with the background check | 0% | 0% → **100%** |
+
+On a 15-second webcam clip the pulse is weak evidence: it stops most photos but also holds back a quarter of real people. It cannot be the gate on its own. Against a printed photo, the head-turn cues in the timed challenge carry most of the weight. The live reject rate on held-out subjects (15%) is above the 10% that was targeted on the tuning subjects.
+
+**Lip sync, [GRID](https://zenodo.org/records/3625687)** (Cooke et al., 2006; CC BY 4.0): 200 three-second sentences from two speakers, filmed face-on. Each clip's mouth movement was scored against its own audio, against another sentence by the same speaker (a dub or separate audio over a real face), and against its own audio 0.5 s late (a slow voice changer).
+
+| Audio | Passes the sync check | AUC against genuine |
+|---|---|---|
+| Its own | 100% | |
+| Another sentence, same speaker | **100%** | 0.54 (chance) |
+| Its own, 0.5 s late | 76.5% | 0.86 |
+
+- **The lip-sync check never rejected a real speaker, but it cannot tell which words were said.** Every GRID sentence has the same six-word rhythm, and the check compares mouth movement with loudness only. A cloned voice saying other words in the same cadence passes it.
+- **It catches gross mismatches only:** silence against a moving mouth, speech against a still one, or audio far out of step. Matching the actual words needs a visual speech model (lip reading), which is out of scope here.
 
 ## Quick start
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q                       # 9 tests
+python -m pytest -q                       # 10 tests
 python -m liveness redteam --trials 20    # attack benchmark
 python -m liveness serve --port 8001      # API + capture page
 ```
@@ -120,7 +150,7 @@ The training script reports AUC and EER on a held-out split.
 The thresholds are physical quantities, and every capture channel shifts them. Before going live, record 50+ genuine sessions through your real app and adjust:
 
 - `liveness/audio.py` → `RULES` (noise floor, spectral edge, jitter, decay)
-- `liveness/rppg.py` → `SNR_LIVE_DB`, `BPM_AGREEMENT`, `PROFILE_CASCADE_LOOKS`
+- `liveness/rppg.py` → `SNR_LIVE_DB`, `BPM_AGREEMENT`, `BG_CORR_MAX`, `PROFILE_CASCADE_LOOKS` (set on MCD-rPPG webcams; re-tune for your camera)
 - `liveness/lipsync.py` → `SYNC_MIN_CORR`
 - `liveness/pipeline.py` → fusion weights and the PASS / REJECT cut-offs
 
@@ -142,6 +172,7 @@ liveness/
   redteam.py    benchmark with APCER/BPCER
   train.py      classifier training (ASVspoof or synthetic)
   realdata.py   train/test on ASVspoof 2019 LA parquet, writes the 16 kHz model
+  realface.py   pulse on MCD-rPPG webcams, lip sync on GRID
   api.py        FastAPI service
 web/capture.html  browser capture flow
 app.py            Streamlit dashboard
@@ -150,5 +181,7 @@ app.py            Streamlit dashboard
 ## Limits
 
 - Face tracking uses Haar cascades so it runs anywhere. For production, swap in a landmark model (MediaPipe Face Mesh) for tighter ROIs and real yaw angles. `extract_video` is the only function that changes.
+- Lip sync compares loudness with mouth movement, so a cloned voice saying other words in the same rhythm passes it (see On real faces).
+- The pulse thresholds come from one public webcam set (mostly Russian adults, indoor light). Skin tone, lighting and camera all shift them.
 - A strong real-time voice converter running at 48 kHz with natural jitter weakens the voice signal. Pulse and lip sync still have to be beaten at the same time.
 - Injection attacks that replace the camera feed are best stopped at the device: attest the app and camera. The timed challenge raises the bar but is not a substitute for that.

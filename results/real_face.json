@@ -1,0 +1,114 @@
+{
+  "pulse": {
+    "dataset": "MCD-rPPG, frontal webcam (640x480, 30 fps), rest and after exercise",
+    "subjects": 20,
+    "clip_seconds": 15,
+    "live_clips_without_face": 0,
+    "heart_rate_vs_finger_ppg": {
+      "clips": 80,
+      "mae_bpm": 6.8,
+      "median_abs_error_bpm": 0.9,
+      "within_5_bpm": 0.762,
+      "within_10_bpm": 0.812
+    },
+    "live_snr_db_median": -0.81,
+    "background_check": {
+      "tuning_subjects": 10,
+      "test_subjects": 10,
+      "live_corr_on_tuning": {
+        "median": 0.078,
+        "p95": 0.342
+      },
+      "threshold_in_code": 0.5
+    },
+    "test_subjects_without_background_check": {
+      "live_clips": 40,
+      "live_pulse_check": {
+        "pass": 0.575,
+        "warn": 0.275,
+        "fail": 0.15
+      },
+      "photo": {
+        "clips": 20,
+        "pulse_check": {
+          "pass": 0.1,
+          "warn": 0.45,
+          "fail": 0.45
+        },
+        "auc_live_vs_attack": 0.766
+      },
+      "photo_flicker": {
+        "clips": 20,
+        "pulse_check": {
+          "pass": 0.3,
+          "warn": 0.05,
+          "fail": 0.65
+        },
+        "auc_live_vs_attack": 0.751
+      },
+      "photo_green": {
+        "clips": 20,
+        "pulse_check": {
+          "pass": 1.0,
+          "warn": 0.0,
+          "fail": 0.0
+        },
+        "auc_live_vs_attack": 0.287
+      }
+    },
+    "test_subjects_with_background_check": {
+      "live_clips": 40,
+      "live_pulse_check": {
+        "pass": 0.575,
+        "warn": 0.275,
+        "fail": 0.15
+      },
+      "photo": {
+        "clips": 20,
+        "pulse_check": {
+          "pass": 0.05,
+          "warn": 0.35,
+          "fail": 0.6
+        },
+        "auc_live_vs_attack": 0.827
+      },
+      "photo_flicker": {
+        "clips": 20,
+        "pulse_check": {
+          "pass": 0.3,
+          "warn": 0.05,
+          "fail": 0.65
+        },
+        "auc_live_vs_attack": 0.751
+      },
+      "photo_green": {
+        "clips": 20,
+        "pulse_check": {
+          "pass": 0.0,
+          "warn": 0.0,
+          "fail": 1.0
+        },
+        "auc_live_vs_attack": 0.9
+      }
+    }
+  },
+  "lipsync": {
+    "dataset": "GRID audio-visual corpus, speakers s1, s2",
+    "clips": 200,
+    "sync_threshold": 0.25,
+    "median_corr": {
+      "genuine": 0.611,
+      "swapped": 0.599,
+      "lagged_0.5s": 0.394
+    },
+    "passes_sync_check": {
+      "genuine": 1.0,
+      "swapped": 1.0,
+      "lagged_0.5s": 0.765
+    },
+    "auc_genuine_vs": {
+      "swapped": 0.54,
+      "lagged_0.5s": 0.857
+    }
+  }
+}
