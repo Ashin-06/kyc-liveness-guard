@@ -98,6 +98,6 @@ async def analyze_audio(audio: UploadFile = File(...)):
 @app.post("/v1/analyze/video")
 async def analyze_video(video: UploadFile = File(...), duration: float | None = Form(None)):
     v = _video_from_bytes(await _read(video), Path(video.filename or "v.mp4").suffix or ".mp4", duration)
-    pr = analyze_traces(v.regions, v.fps)
+    pr = analyze_traces(v.regions, v.fps, v.background)
     return {"risk": round(pr.risk, 3), "bpm": round(pr.bpm, 1), "snr_db": round(pr.snr_db, 2),
             "region_bpm": pr.region_bpm, "face_ratio": v.face_ratio, "fps": v.fps, "reasons": pr.reasons}

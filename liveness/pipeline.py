@@ -66,10 +66,11 @@ def evaluate(
         if video.face_ratio < 0.5:
             hard_fail = True
             checks.append(Check("face", 1.0, "fail", [f"face visible in only {video.face_ratio:.0%} of frames"]))
-        pr = analyze_traces(video.regions, video.fps)
+        pr = analyze_traces(video.regions, video.fps, video.background)
         checks.append(Check("pulse", pr.risk, _status(pr.risk), pr.reasons,
                             {"bpm": round(pr.bpm, 1), "snr_db": round(pr.snr_db, 2), "region_bpm": {k: round(v, 1) for k, v in pr.region_bpm.items()},
-                             "bpm_spread": round(pr.bpm_spread, 1)}))
+                             "bpm_spread": round(pr.bpm_spread, 1),
+                             "background_corr": None if pr.background_corr is None else round(pr.background_corr, 2)}))
         if audio is not None:
             env = envelope_per_frame(audio[0], audio[1], video.fps, len(video.mouth_motion))
             corr, lag = sync_score(env, video.mouth_motion, video.fps)

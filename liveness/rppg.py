@@ -18,9 +18,11 @@ from scipy import signal
 HR_BAND = (0.7, 3.5)  # 42 - 210 bpm
 REGIONS = ("forehead", "cheek_l", "cheek_r")
 
-# Calibration knobs. Tune on your own camera pipeline.
-SNR_LIVE_DB = 1.0       # POS SNR on a 10 s clip from a laptop webcam usually lands in 2..8 dB
-BPM_AGREEMENT = 9.0     # max spread of per-region heart rates, bpm
+# Calibration knobs, set on 10 MCD-rPPG subjects (640x480 webcam, 15 s clips) and tested on 10 others;
+# see results/real_face.json. Re-tune on your own camera pipeline.
+SNR_LIVE_DB = -1.5      # real webcam faces: median -0.8 dB; at most 10% of live clips should fail
+BPM_AGREEMENT = 60.0    # cheek patches are small at 640x480: live faces spread up to ~50 bpm, so only wild disagreement counts
+BG_CORR_MAX = 0.5       # live faces: 95% below 0.34; a tinted lamp: 0.98+
 # Which way OpenCV's profile cascade "looks" in the raw frame. The stock cascade is
 # trained on faces turned toward image-left; flip if your build disagrees.
 PROFILE_CASCADE_LOOKS = "left"
@@ -76,9 +78,10 @@ class PulseReport:
     risk: float
     reasons: list[str] = field(default_factory=list)
     pulse: np.ndarray | None = None
+    background_corr: float | None = None
 
 
-def analyze_traces(traces: dict[str, np.ndarray], fps: float) -> PulseReport:
+def analyze_traces(traces: dict[str, np.ndarray], fps: float, background: np.ndarray | None = None) -> PulseReport:
     pulses, rbpm, rsnr = {}, {}, {}
     for name in REGIONS:
         if name not in traces:
@@ -100,7 +103,15 @@ def analyze_traces(traces: dict[str, np.ndarray], fps: float) -> PulseReport:
     if not (45 <= bpm <= 180):
         score += 1.0
         reasons.append(f"implausible heart rate {bpm:.0f} bpm")
-    return PulseReport(bpm, snr, rbpm, rsnr, spread, float(1 / (1 + np.exp(-score))), reasons, combined)
+    # blood flow only colours skin; a flickering lamp or screen colours the room as well
+    bg_corr = None
+    if background is not None and len(background) == len(combined):
+        # a flat background (blown-out white, black) has no rhythm at all: correlation 0, not NaN
+        bg_corr = float(np.nan_to_num(abs(np.corrcoef(combined, bandpass(pos(background, fps), fps))[0, 1])))
+        if bg_corr > BG_CORR_MAX:
+            score += 3.0
+            reasons.append(f"the same rhythm shows off the face (r={bg_corr:.2f}): flicker or a screen, not blood flow")
+    return PulseReport(bpm, snr, rbpm, rsnr, spread, float(1 / (1 + np.exp(-score))), reasons, combined, bg_corr)
 
 
 # ---------------------------------------------------------------- video -> traces
@@ -112,6 +123,7 @@ class VideoTraces:
     mouth_motion: np.ndarray
     face_ratio: float
     yaw: list[str]  # per frame: "front" | "left" | "right" | "none" (image coordinates)
+    background: np.ndarray | None = None  # mean RGB of the two top corners of the frame
 
 
 def _roi(box, fx0, fy0, fx1, fy1):
@@ -119,23 +131,41 @@ def _roi(box, fx0, fy0, fx1, fy1):
     return int(x + fx0 * w), int(y + fy0 * h), int(x + fx1 * w), int(y + fy1 * h)
 
 
-def extract_video(path: str | Path, duration_hint: float | None = None, max_frames: int = 900) -> VideoTraces:
+def extract_video(path: str | Path, duration_hint: float | None = None, max_frames: int = 900, start_frame: int = 0) -> VideoTraces:
+    import cv2
+
+    cap = cv2.VideoCapture(str(path))
+    if not cap.isOpened():
+        raise ValueError(f"cannot open video {path}")
+    for _ in range(start_frame):  # grab, not CAP_PROP_POS_FRAMES: seeking fails silently on AVIs without an index
+        if not cap.grab():
+            break
+
+    def frames():
+        for _ in range(max_frames):
+            ok, frame = cap.read()
+            if not ok:
+                return
+            yield frame
+
+    try:
+        return extract_frames(frames(), cap.get(cv2.CAP_PROP_FPS), duration_hint)
+    finally:
+        cap.release()
+
+
+def extract_frames(frames, fps: float, duration_hint: float | None = None) -> VideoTraces:
+    """Region colour traces, mouth motion and head direction from BGR frames."""
     import cv2
 
     frontal = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
     profile = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_profileface.xml")
-    cap = cv2.VideoCapture(str(path))
-    if not cap.isOpened():
-        raise ValueError(f"cannot open video {path}")
-    fps = cap.get(cv2.CAP_PROP_FPS)
-
     rois = {k: [] for k in REGIONS}
-    mouth, yaw = [], []
+    mouth, yaw, corners = [], [], []
     box, prev_mouth, found = None, None, 0
-    for _ in range(max_frames):
-        ok, frame = cap.read()
-        if not ok:
-            break
+    for frame in frames:
+        ch, cw = frame.shape[0] * 12 // 100, frame.shape[1] * 12 // 100
+        corners.append(np.concatenate([frame[:ch, :cw].reshape(-1, 3), frame[:ch, -cw:].reshape(-1, 3)]).mean(axis=0)[::-1])
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         small = cv2.resize(gray, None, fx=0.5, fy=0.5)
         faces = frontal.detectMultiScale(small, 1.15, 5, minSize=(40, 40))
@@ -168,7 +198,6 @@ def extract_video(path: str | Path, duration_hint: float | None = None, max_fram
         m = cv2.resize(m, (32, 16)).astype(float) if m.size else None
         mouth.append(np.nan if m is None or prev_mouth is None else float(np.mean(np.abs(m - prev_mouth))))
         prev_mouth = m
-    cap.release()
 
     n = len(yaw)
     if n < 30:
@@ -193,4 +222,5 @@ def extract_video(path: str | Path, duration_hint: float | None = None, max_fram
         mouth_motion=fill(mouth)[:, 0],
         face_ratio=found / n,
         yaw=yaw,
+        background=fill(corners),
     )
