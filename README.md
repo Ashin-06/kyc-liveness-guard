@@ -15,24 +15,26 @@ The challenge needs no speech recognition. The server picks *when* each cue appe
 
 ## Results on the attack benchmark
 
-`python -m liveness redteam --trials 20`:
+`python -m liveness redteam --trials 20` (one run with the locked dependencies, 26 October 2026):
 
 ```
 scenario                    pass  step   rej   risk  metric
 ----------------------------------------------------------------
-bona_fide                     19     1     0   0.10  BPCER 5.0%
-photo_tts                      0     0    20   0.89  APCER 0.0%
+bona_fide                     20     0     0   0.09  BPCER 0.0%
+photo_tts                      0     0    20   0.86  APCER 0.0%
 screen_replay                  0     0    20   0.20  APCER 0.0%
-faceswap_clone                 2    10     8   0.50  APCER 10.0%
-clone_noise_masked             0     2    18   0.64  APCER 0.0%
-virtual_cam_old_session        0     0    20   0.09  APCER 0.0%
+faceswap_clone                 3     8     9   0.55  APCER 15.0%
+clone_noise_masked             0     0    20   0.67  APCER 0.0%
+virtual_cam_old_session        0     0    20   0.14  APCER 0.0%
 ```
 
 APCER and BPCER follow ISO/IEC 30107-3. APCER is the share of attacks accepted; BPCER is the share of genuine users not accepted.
 
+The challenge schedule is drawn at random on every run, so the counts move between runs. Over three runs on 26 October 2026, `faceswap_clone` APCER was 15%, 20% and 15%; every other attack stayed at 0% and bona fide BPCER at 0%. An earlier version of this table showed BPCER 5.0% and `faceswap_clone` APCER 10.0%.
+
 Two attackers in the benchmark adapt to the defence:
 - **`clone_noise_masked`** adds fake room noise to hide digital silence. The spectral edge and pitch jitter still catch it.
-- **`faceswap_clone`** follows the cues live. Timing alone can't catch it, so the missing pulse and the voice artifacts have to. With the pulse thresholds calibrated on real webcams (below), 2 of 20 get through and 10 are held for review. Before that calibration all 20 were stopped, but the same settings rejected two thirds of real people.
+- **`faceswap_clone`** follows the cues live. Timing alone can't catch it, so the missing pulse and the voice artifacts have to. With the pulse thresholds calibrated on real webcams (below), 3 or 4 of 20 get through and 3 to 8 are held for review. Before that calibration all 20 were stopped, but the same settings rejected two thirds of real people.
 
 The benchmark is synthetic: voices come from a source-filter model and faces are RGB traces. Treat these numbers as a regression suite, not a field accuracy claim. Before deploying, measure on your own capture channel (see Calibration).
 
@@ -86,10 +88,19 @@ On a 15-second webcam clip the pulse is weak evidence: it stops most photos but 
 ## Quick start
 
 ```bash
-pip install -r requirements.txt
-python -m pytest -q                       # 10 tests
+pip install -r requirements.txt          # or: pip install -r requirements-dev.lock && pip install -e .
+python -m pytest -q                       # 33 tests
 python -m liveness redteam --trials 20    # attack benchmark
-python -m liveness serve --port 8001      # API + capture page
+python -m liveness serve                  # API + capture page on 127.0.0.1:8001 (demo mode, no keys)
+```
+
+In a container (production mode; see [docs/runbook.md](docs/runbook.md)):
+
+```bash
+docker build -t kyc-liveness-guard:1.0.0 .
+python -m liveness.ops keygen             # an API key with its hash, and a challenge key
+docker run -p 8001:8001 -v liveness-data:/data -e LIVENESS_API_KEYS='{"sha256:...": {"user": "onboarding", "role": "kyc_app"}}' \
+  -e LIVENESS_CHALLENGE_KEY=... kyc-liveness-guard:1.0.0
 ```
 
 Open http://127.0.0.1:8001 for the browser capture flow. It records about 15 seconds of webcam video and raw microphone audio while it shows the cues, then posts both for verification.
@@ -108,7 +119,10 @@ streamlit run app.py
 | POST | `/v1/verify` | multipart: `token`, `audio` (wav), `video` (webm/mp4, optional), `duration` | `decision` (PASS / STEP_UP / REJECT), `risk`, per-check reasons |
 | POST | `/v1/analyze/audio` | multipart: `audio` | voice risk and features |
 | POST | `/v1/analyze/video` | multipart: `video` | pulse, heart rate, face coverage |
-| GET | `/healthz` | – | status, active voice engine |
+| GET | `/healthz`, `/readyz` | – | liveness; readiness (database, 16 kHz voice model) |
+| GET | `/metrics` | – | Prometheus metrics (role `monitor`) |
+
+Every `/v1` call needs an API key (`x-api-key` or `Authorization: Bearer`) once keys are configured. Roles: `kyc_app` may issue challenges and verify, `analyst` may also use `/v1/analyze/*`, `monitor` reads `/metrics`, `admin` does all of it. Without keys the service runs in demo mode and only listens on loopback. The capture page asks for a key when the service has them and keeps it for that browser tab.
 
 Example response:
 
@@ -126,7 +140,7 @@ Example response:
 }
 ```
 
-Set `LIVENESS_SECRET` (hex) so tokens survive restarts and work across replicas. Single-use tracking is in memory; with more than one replica, move the used-token set to Redis.
+Settings come from `LIVENESS_*` environment variables (full table in [docs/runbook.md](docs/runbook.md)). `LIVENESS_CHALLENGE_KEY` (base64, 32 bytes or more) signs the tokens; it replaces the old hex `LIVENESS_SECRET`. Redeemed token ids are stored in the database (`LIVENESS_DATABASE_URL`, SQLite or Postgres) until they expire, so a replayed token is refused after a restart and on every replica. With `LIVENESS_ENV=production` the service refuses to start without hashed API keys, the challenge key and a database.
 
 ## Training the voice model
 
@@ -185,3 +199,20 @@ app.py            Streamlit dashboard
 - The pulse thresholds come from one public webcam set (mostly Russian adults, indoor light). Skin tone, lighting and camera all shift them.
 - A strong real-time voice converter running at 48 kHz with natural jitter weakens the voice signal. Pulse and lip sync still have to be beaten at the same time.
 - Injection attacks that replace the camera feed are best stopped at the device: attest the app and camera. The timed challenge raises the bar but is not a substitute for that.
+
+## Production readiness
+
+**In place** (see [docs/runbook.md](docs/runbook.md), [docs/threat-model.md](docs/threat-model.md) and [docs/model-card.md](docs/model-card.md)):
+- Pinned dependencies (`requirements.lock`), `pyproject.toml`, a container image that runs as a non-root user with a health check, and CI (ruff, bandit, pip-audit, tests with coverage).
+- Production mode that refuses to start without hashed per-client API keys, a challenge signing key and a database. No secret has a default, and the service won't listen publicly without keys.
+- Roles on keys, per-client rate limits, a body size cap sized for one capture, security headers, CORS only for listed origins, and errors that don't echo input, internals or server paths.
+- Single-use challenge tokens enforced in SQLite or Postgres across restarts and replicas, with numbered migrations and challenge-key rotation.
+- JSON logs with request IDs (each verification logs caller, challenge id, decision and risk, never the recordings), `/healthz`, `/readyz` and Prometheus metrics.
+
+**Still needed before it gates real onboarding**, none of which code can supply:
+- An independent security review and penetration test, including red-teaming with current deepfake and voice-cloning tools. Nobody outside this project has reviewed it.
+- Validation on the bank's own capture channel and customers. The voice numbers come from ASVspoof, the pulse numbers from one public webcam set, and the attack benchmark is synthetic; the 48 kHz voice path has no real-data measurement.
+- RBI video-KYC (V-CIP) and DPDP Act 2023 sign-off, including consent and retention rules for biometric data, and a fairness check across skin tones, ages and devices.
+- Integration with the bank's onboarding app, device attestation (Play Integrity / App Attest), face match against the ID document and a review queue for STEP_UP.
+- The challenge key in an HSM or a KMS rather than an environment variable.
+- TLS and a shared rate limiter at the ingress; load testing of `/v1/verify`; an on-call team with SLOs and alerting on the metrics above.
