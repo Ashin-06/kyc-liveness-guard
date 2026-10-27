@@ -1,0 +1,6 @@
+*
+!liveness
+!web
+!models/voice_model_asvspoof.joblib
+!requirements.lock
+**/__pycache__
