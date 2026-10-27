@@ -5,7 +5,8 @@ times on the recording timeline. A pre-recorded clip or an offline voice clone c
 know the schedule, so speech onsets and head turns must land right after each cue.
 This needs no speech recognition: timing alone is verified server side.
 
-Tokens are HMAC-signed and single use.
+Tokens are HMAC-signed and single use. Redeemed token ids are kept in the database
+until they expire, so a replay is refused after a restart and on every replica.
 """
 from __future__ import annotations
 
@@ -14,9 +15,14 @@ import hashlib
 import hmac
 import json
 import secrets
-import threading
 import time
 from dataclasses import asdict, dataclass
+
+from sqlalchemy import text
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError
+
+from . import db
 
 WORDS = (
     "amber anchor apple arrow basket bridge butter candle canyon carpet castle cherry cobalt "
@@ -54,11 +60,12 @@ def _unb64(s: str) -> bytes:
 
 
 class ChallengeService:
-    def __init__(self, secret: bytes | None = None, ttl: int = TOKEN_TTL_S):
+    def __init__(self, secret: bytes | None = None, ttl: int = TOKEN_TTL_S, engine: Engine | None = None,
+                 previous_keys: tuple[bytes, ...] = ()):
         self.secret = secret or secrets.token_bytes(32)
+        self.keys = [self.secret, *previous_keys]  # tokens issued before a key rotation still redeem
         self.ttl = ttl
-        self._used: dict[str, float] = {}
-        self._lock = threading.Lock()
+        self.db = engine or db.connect("sqlite://")
 
     def issue(self, n_speak: int = 3, n_turn: int = 2, now: float | None = None) -> tuple[str, dict]:
         rng = secrets.SystemRandom()
@@ -90,16 +97,18 @@ class ChallengeService:
             sig = _unb64(sig_b64)
         except ValueError as e:
             raise ChallengeError("malformed token") from e
-        if not hmac.compare_digest(sig, hmac.new(self.secret, body, hashlib.sha256).digest()):
+        if not any(hmac.compare_digest(sig, hmac.new(k, body, hashlib.sha256).digest()) for k in self.keys):
             raise ChallengeError("bad signature")
         payload = json.loads(body)
         if now > payload["exp"]:
             raise ChallengeError("token expired")
-        with self._lock:
-            self._used = {k: v for k, v in self._used.items() if v > now}  # prune expired
-            if payload["id"] in self._used:
-                raise ChallengeError("token already used (replay)")
-            self._used[payload["id"]] = payload["exp"]
+        try:
+            with self.db.begin() as c:
+                c.execute(text("DELETE FROM used_challenges WHERE expires_at < :now"), {"now": int(now)})
+                c.execute(text("INSERT INTO used_challenges (id, expires_at) VALUES (:id, :exp)"),
+                          {"id": str(payload["id"]), "exp": int(payload["exp"])})
+        except IntegrityError:  # the id is already there: redeemed before, here or on another replica
+            raise ChallengeError("token already used (replay)") from None
         return payload
 
 

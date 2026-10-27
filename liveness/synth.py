@@ -51,7 +51,7 @@ def voice(
     exc, t = np.zeros(n), 0.0
     while t < dur:
         drift = 1 + intonation * np.sin(2 * np.pi * 0.35 * t + phase) + 0.4 * intonation * np.sin(2 * np.pi * 1.7 * t)
-        idx = int(t * sr)
+        idx = min(int(t * sr), n - 1)  # t just under dur can round up to n
         exc[idx] = 1 + shimmer * rng.standard_normal()
         t += (1 / (f0 * drift)) * (1 + jitter * rng.standard_normal())
     g = signal.lfilter([1], [1, -0.96], signal.lfilter([1], [1, -0.96], exc))
@@ -133,7 +133,7 @@ def face_traces(kind: str = "live", fps: float = 30.0, dur: float = 10.0, seed: 
     pulse = np.sin(2 * np.pi * np.cumsum(hr) / fps) + 0.35 * np.sin(4 * np.pi * np.cumsum(hr) / fps + 0.8)
     light = 1 + 0.004 * np.cumsum(rng.standard_normal(n)) / np.sqrt(n) + 0.002 * np.sin(2 * np.pi * 0.07 * t)
     out = {}
-    for i, region in enumerate(("forehead", "cheek_l", "cheek_r")):
+    for region in ("forehead", "cheek_l", "cheek_r"):
         base = SKIN * rng.uniform(0.95, 1.05)
         amp = {"live": 0.0035, "photo": 0.0, "screen": 0.0009, "deepfake": 0.0}[kind]
         p = pulse

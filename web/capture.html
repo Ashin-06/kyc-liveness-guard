@@ -61,6 +61,7 @@
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
+const auth = () => (sessionStorage.getItem("apiKey") ? { "x-api-key": sessionStorage.getItem("apiKey") } : {});
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Records raw PCM; browser voice processing is disabled because noise suppression
@@ -116,7 +117,18 @@ async function run() {
   }
   $("preview").srcObject = stream;
   $("status").textContent = "Get ready…";
-  const ch = await (await fetch("/v1/challenge", { method: "POST" })).json();
+  let r = await fetch("/v1/challenge", { method: "POST", headers: auth() });
+  if (r.status === 401) {  // the service has API keys: ask once, keep it for this tab only
+    sessionStorage.setItem("apiKey", prompt("API key for this service") || "");
+    r = await fetch("/v1/challenge", { method: "POST", headers: auth() });
+  }
+  const ch = await r.json();
+  if (!r.ok) {
+    $("status").textContent = ch.detail || "Could not start the check";
+    stream.getTracks().forEach((t) => t.stop());
+    $("start").disabled = false;
+    return;
+  }
   await sleep(1200);
 
   const ctx = new AudioContext();
@@ -163,7 +175,7 @@ async function run() {
   form.append("duration", elapsed.toFixed(3));
   form.append("audio", encodeWav(chunks, sampleRate), "audio.wav");
   form.append("video", new Blob(parts, { type: "video/webm" }), "video.webm");
-  const resp = await fetch("/v1/verify", { method: "POST", body: form });
+  const resp = await fetch("/v1/verify", { method: "POST", body: form, headers: auth() });
   const body = await resp.json();
   if (!resp.ok) {
     $("status").textContent = body.detail || "Verification failed";

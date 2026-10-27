@@ -84,7 +84,7 @@ def run(trials: int = 20, seed: int = 0) -> dict:
             decisions.append(d.decision)
             risks.append(d.risk)
             for c in d.checks:
-                for r in c.reasons:
+                for _ in c.reasons:
                     key = c.name
                     reasons[key] = reasons.get(key, 0) + 1
         accepted = decisions.count("PASS") / trials

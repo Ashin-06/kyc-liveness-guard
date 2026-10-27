@@ -119,7 +119,8 @@ def summarise(clips: list[dict], background: bool = True) -> dict:
 def mcd(folder: str | Path, subjects: int = 20, cache: str | Path | None = None) -> dict:
     folder = Path(folder)
     if cache and Path(cache).exists():
-        clips = pickle.loads(Path(cache).read_bytes())
+        # a cache this command wrote itself on an earlier run
+        clips = pickle.loads(Path(cache).read_bytes())  # nosec B301
     else:
         rows = [r for r in csv.DictReader(open(folder / "db.csv", encoding="utf-8")) if r["camera"] == "FullHDwebcam"]
         keep = sorted({r["patient_id"] for r in rows if (folder / r["video"]).exists()})[:subjects]

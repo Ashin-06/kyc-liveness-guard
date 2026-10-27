@@ -47,8 +47,12 @@ def frame_db(x: np.ndarray, sr: int, win: float = 0.025, hop: float = 0.010) -> 
 
 def mel_filterbank(sr: int, n_fft: int, n_mels: int = 40, fmin: float = 20.0, fmax: float | None = None) -> np.ndarray:
     fmax = fmax or sr / 2
-    mel = lambda f: 2595 * np.log10(1 + f / 700)
-    hz = lambda m: 700 * (10 ** (m / 2595) - 1)
+    def mel(f):
+        return 2595 * np.log10(1 + f / 700)
+
+    def hz(m):
+        return 700 * (10 ** (m / 2595) - 1)
+
     pts = hz(np.linspace(mel(fmin), mel(fmax), n_mels + 2))
     bins = np.floor((n_fft + 1) * pts / sr).astype(int)
     fb = np.zeros((n_mels, n_fft // 2 + 1))
@@ -83,10 +87,10 @@ def f0_track(x: np.ndarray, sr: int, fmin: float = 70, fmax: float = 400) -> np.
     lag = lo + np.argmax(ac[:, lo:hi], axis=1)
     peak = ac[np.arange(len(lag)), lag]
     # parabolic interpolation for sub-sample lag precision; jitter lives in that precision
-    l = np.clip(lag, 1, n - 2)
-    a, b, c = ac[np.arange(len(l)), l - 1], ac[np.arange(len(l)), l], ac[np.arange(len(l)), l + 1]
+    k = np.clip(lag, 1, n - 2)
+    a, b, c = ac[np.arange(len(k)), k - 1], ac[np.arange(len(k)), k], ac[np.arange(len(k)), k + 1]
     shift = 0.5 * (a - c) / (a - 2 * b + c + EPS)
-    f0 = sr / (l + np.clip(shift, -0.5, 0.5))
+    f0 = sr / (k + np.clip(shift, -0.5, 0.5))
     return np.where(active & (peak > 0.45), f0, 0.0)
 
 
