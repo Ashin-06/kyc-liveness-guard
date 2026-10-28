@@ -132,3 +132,7 @@ app.py            Streamlit dashboard
 - The code has not had an independent security review. Before use in real onboarding it also needs testing on the bank's own capture channel, RBI video-KYC and data protection approval, and the challenge key in an HSM or KMS.
 
 See [SECURITY.md](SECURITY.md), [docs/threat-model.md](docs/threat-model.md) and [docs/model-card.md](docs/model-card.md).
+
+## License
+
+MIT. See [LICENSE](LICENSE).
