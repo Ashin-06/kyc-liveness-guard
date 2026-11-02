@@ -11,6 +11,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from starlette.concurrency import run_in_threadpool
 
 from . import db, ops
 from .audio import AudioAnalyzer, load_audio
@@ -92,11 +93,15 @@ async def verify(
     except ChallengeError as e:
         ops.DECISIONS.labels(decision="challenge_rejected").inc()
         raise HTTPException(401, f"challenge rejected: {e}") from e
-    a = _audio_from_bytes(await _read(audio))
-    v = None
-    if video is not None:
-        v = _video_from_bytes(await _read(video), _suffix(video.filename, ".webm"), duration)
-    result = evaluate(a, v, payload, analyzer).as_dict()
+    audio_bytes = await _read(audio)
+    video_bytes = await _read(video) if video is not None else None
+    suffix = _suffix(video.filename if video is not None else None, ".webm")
+
+    def check() -> dict:  # seconds of CPU: run it off the event loop so /healthz and other requests keep answering
+        v = _video_from_bytes(video_bytes, suffix, duration) if video_bytes is not None else None
+        return evaluate(_audio_from_bytes(audio_bytes), v, payload, analyzer).as_dict()
+
+    result = await run_in_threadpool(check)
     ops.DECISIONS.labels(decision=result["decision"]).inc()
     log.info("verified", extra={"fields": {"user": ident["user"], "challenge": payload["id"],
                                            "decision": result["decision"], "risk": result["risk"]}})
@@ -105,8 +110,8 @@ async def verify(
 
 @app.post("/v1/analyze/audio")
 async def analyze_audio(audio: UploadFile = File(...), ident: dict = Depends(ops.require("analyze"))):
-    x, sr = _audio_from_bytes(await _read(audio))
-    rep = analyzer.analyze(x, sr)
+    data = await _read(audio)
+    rep = await run_in_threadpool(lambda: analyzer.analyze(*_audio_from_bytes(data)))
     return {"risk": round(rep.risk, 3), "engine": rep.source, "reasons": rep.reasons,
             "features": {k: v for k, v in rep.features.items() if not k.startswith("mfcc")}}
 
@@ -114,7 +119,12 @@ async def analyze_audio(audio: UploadFile = File(...), ident: dict = Depends(ops
 @app.post("/v1/analyze/video")
 async def analyze_video(video: UploadFile = File(...), duration: float | None = Form(None, gt=0, le=120),
                         ident: dict = Depends(ops.require("analyze"))):
-    v = _video_from_bytes(await _read(video), _suffix(video.filename, ".mp4"), duration)
-    pr = analyze_traces(v.regions, v.fps, v.background)
+    data, suffix = await _read(video), _suffix(video.filename, ".mp4")
+
+    def check():
+        v = _video_from_bytes(data, suffix, duration)
+        return v, analyze_traces(v.regions, v.fps, v.background)
+
+    v, pr = await run_in_threadpool(check)
     return {"risk": round(pr.risk, 3), "bpm": round(pr.bpm, 1), "snr_db": round(pr.snr_db, 2),
             "region_bpm": pr.region_bpm, "face_ratio": v.face_ratio, "fps": v.fps, "reasons": pr.reasons}

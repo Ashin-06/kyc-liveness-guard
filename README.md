@@ -17,7 +17,7 @@ The challenge needs no speech recognition. The server decides when each cue appe
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q                       # 33 tests
+python -m pytest -q                       # 34 tests
 python -m liveness redteam --trials 20    # attack benchmark
 python -m liveness serve                  # API and capture page on http://127.0.0.1:8001
 streamlit run app.py                      # dashboard
@@ -67,7 +67,7 @@ Example response:
 
 | Test | Result |
 |---|---|
-| Synthetic attack benchmark (20 sessions per scenario) | all photo, replay, cloned-voice and virtual-camera attacks rejected; 15–20% of live face swaps accepted; no genuine users rejected |
+| Synthetic attack benchmark (20 sessions per scenario) | all photo, replay, cloned-voice and virtual-camera attacks rejected; 0–20% of live face swaps accepted (it varies between runs because cue times are random); no genuine users rejected |
 | Real speech, ASVspoof 2019 LA, unseen attacks | voice equal error rate 15.0% (published baselines 8.1–9.6%) |
 | Real webcam faces, MCD-rPPG | heart rate within 0.9 bpm of a finger sensor (median); 60% of photo attacks rejected, 15% of real faces rejected |
 | Lip sync, GRID corpus | real speakers always pass, but so does audio of a different sentence |

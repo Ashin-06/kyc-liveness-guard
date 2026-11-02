@@ -157,6 +157,38 @@ def test_health_and_readiness(monkeypatch):
     assert r.status_code == 503 and r.json()["checks"]["database"] is False and "db down" not in r.text
 
 
+def test_verify_does_not_block_other_requests(monkeypatch):
+    """A verify takes seconds of CPU; health checks must still answer meanwhile, or the
+    container's 3-second health check fails and concurrent users queue behind each other."""
+    import threading
+    import time
+
+    api = boot(monkeypatch)
+
+    class Slow:
+        def as_dict(self):
+            return {"decision": "STEP_UP", "risk": 0.5, "checks": []}
+
+    def slow_evaluate(*args, **kwargs):
+        time.sleep(2)  # stands in for face tracking on a 15 s capture
+        return Slow()
+
+    monkeypatch.setattr(api, "evaluate", slow_evaluate)
+    monkeypatch.setattr(api, "_audio_from_bytes", lambda data: (None, 16000))
+    with TestClient(api.app) as c:  # one event loop for every request, as in uvicorn
+        token = c.post("/v1/challenge").json()["token"]
+        done = {}
+        t = threading.Thread(target=lambda: done.update(r=c.post("/v1/verify", data={"token": token},
+                                                                files={"audio": ("a.wav", b"RIFF", "audio/wav")})))
+        t.start()
+        time.sleep(0.3)
+        t0 = time.perf_counter()
+        assert c.get("/healthz").status_code == 200
+        assert time.perf_counter() - t0 < 1.0
+        t.join()
+    assert done["r"].status_code == 200
+
+
 def test_json_logs_carry_request_ids(capsys):
     ops.setup_logging("INFO")
     token = ops.request_id.set("rid-1")
