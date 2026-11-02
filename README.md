@@ -23,7 +23,7 @@ python -m liveness serve                  # API and capture page on http://127.0
 streamlit run app.py                      # dashboard
 ```
 
-The capture page records about 15 seconds of webcam video and microphone audio while it shows the cues, then sends both for verification. Without API keys the service runs in demo mode and only listens on localhost.
+The capture page records 15 to 20 seconds of webcam video and microphone audio while it shows the cues, then sends both for verification. Without API keys the service runs in demo mode and only listens on localhost.
 
 To run it in a container:
 
