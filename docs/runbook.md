@@ -5,12 +5,12 @@ How to deploy, configure and operate the liveness service. Commands assume the r
 ## Deploy
 
 ```bash
-docker build -t kyc-liveness-guard:1.0.0 .
+docker build -t kyc-liveness-guard:1.0.1 .
 python -m liveness.ops keygen          # one API key per client, plus the challenge key
 docker run -d --name liveness -p 8001:8001 -v liveness-data:/data \
   -e LIVENESS_KEYS_FILE=/run/secrets/liveness-keys.json \
   -e LIVENESS_CHALLENGE_KEY=... \
-  kyc-liveness-guard:1.0.0
+  kyc-liveness-guard:1.0.1
 curl -fsS http://127.0.0.1:8001/readyz
 ```
 

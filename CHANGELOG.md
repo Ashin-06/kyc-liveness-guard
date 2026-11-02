@@ -2,6 +2,28 @@
 
 All notable changes to this project. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.0.1 — 2026-11-02
+
+### Fixed
+- A head-turn cue that came after the end of the uploaded video counted as passed. It now fails,
+  so a short clip can't skip the turns.
+- When a video had more frames than are analysed, or its header gave no usable frame rate, the
+  frame rate was worked out from the frames read rather than all of them (a 60 fps, 20 s capture
+  came out at 41.5 fps, skewing heart rate and cue timing). Up to 1,200 frames are analysed now
+  (the longest challenge at 60 fps) and the rest are counted.
+- Silent, clipped or DC-offset audio made `/v1/verify` and `/v1/analyze/audio` fail with a 500
+  (undefined pitch features can't be written as JSON). They now get a decision, with `null` for
+  undefined features. Audio shorter than 0.5 s is refused with a 422.
+- Verification ran in the server's event loop, so `/healthz` and every other request waited for
+  it; it now runs in a worker thread.
+- `liveness audio` and `liveness video`, and the dashboard, loaded only the wideband voice model,
+  by a path relative to the working folder; they now use the same models as the API from any
+  folder. The CLI rejects mistyped options and `--trials 0`.
+- The capture page stayed stuck, with the camera on, if anything failed mid-check (network, a
+  proxy error page); it now shows a message, stops the camera and lets the user try again.
+  Result text is escaped.
+- Tests use `httpx2`, as starlette 1.10's test client expects.
+
 ## 1.0.0 — 2026-10-27
 
 ### Added

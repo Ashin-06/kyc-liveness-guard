@@ -17,7 +17,7 @@ The challenge needs no speech recognition. The server decides when each cue appe
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q                       # 34 tests
+python -m pytest -q                       # 39 tests
 python -m liveness redteam --trials 20    # attack benchmark
 python -m liveness serve                  # API and capture page on http://127.0.0.1:8001
 streamlit run app.py                      # dashboard

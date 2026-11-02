@@ -15,7 +15,7 @@ clone_noise_masked             0     0    20   0.67  APCER 0.0%
 virtual_cam_old_session        0     0    20   0.14  APCER 0.0%
 ```
 
-The cue schedule is drawn from the operating system's random source, as it must be in production, so runs differ slightly even with the same seed. Three runs on 2 November 2026 accepted 2, 3 and 0 of the 20 live face swaps (10%, 15%, 0%); every other row matched the run above: no genuine session rejected and every photo, replay, virtual-camera and noise-masked clone attack stopped.
+The cue schedule is drawn from the operating system's random source, as it must be in production, so runs differ slightly even with the same seed. Three runs on 2 November 2026 accepted 2, 3 and 0 of the 20 live face swaps (10%, 15%, 0%); every other row matched the run above: no genuine session rejected and every photo, replay, virtual-camera and noise-masked clone attack stopped. A separate run of 100 genuine sessions gave 99 PASS and 1 STEP_UP (the voice check called that synthetic voice monotone and band-limited); none was rejected.
 
 APCER and BPCER follow ISO/IEC 30107-3: APCER is the share of attacks accepted, BPCER the share of genuine users not accepted. The challenge schedule is random on every run, so the counts move a little. Over three runs, `faceswap_clone` APCER was 15%, 20% and 15%; every other attack stayed at 0% and BPCER at 0%.
 
