@@ -1,6 +1,7 @@
 """Combine voice, pulse, lip-sync and challenge evidence into one decision."""
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -31,7 +32,7 @@ class Decision:
     checks: list[Check]
 
     def as_dict(self) -> dict:
-        return {
+        return json_safe({
             "decision": self.decision,
             "risk": round(self.risk, 3),
             "checks": [
@@ -39,7 +40,19 @@ class Decision:
                  "reasons": c.reasons, "data": c.data}
                 for c in self.checks
             ],
-        }
+        })
+
+
+def json_safe(v):
+    """NaN and infinity become None: silence or clipping leaves some features undefined, and
+    JSON has no NaN, so returning them as-is made the response itself fail."""
+    if isinstance(v, dict):
+        return {k: json_safe(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [json_safe(x) for x in v]
+    if isinstance(v, float) and not math.isfinite(v):
+        return None
+    return v
 
 
 def _status(r: float) -> str:

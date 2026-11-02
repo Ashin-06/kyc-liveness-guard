@@ -4,6 +4,7 @@
 """
 import os
 import tempfile
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -16,6 +17,9 @@ from liveness.audio import AudioAnalyzer, load_audio
 from liveness.pipeline import evaluate
 from liveness.redteam import run
 from liveness.rppg import analyze_traces, extract_video, spectrum
+
+MODELS = Path(__file__).resolve().parent / "models"  # the same voice models the API uses
+MIN_AUDIO_S = 0.5
 
 st.set_page_config(page_title="KYC Liveness Guard", layout="wide")
 st.title("KYC Liveness Guard")
@@ -51,7 +55,14 @@ with tab_inspect:
     audio_file = c1.file_uploader("Voice recording (wav/flac/ogg)", type=["wav", "flac", "ogg"])
     video_file = c2.file_uploader("Face video (mp4/webm/mov)", type=["mp4", "webm", "mov", "avi"])
     if audio_file or video_file:
-        audio = load_audio(audio_file.getvalue()) if audio_file else None
+        try:
+            audio = load_audio(audio_file.getvalue()) if audio_file else None
+        except Exception:  # soundfile raises its own error types
+            st.error("Could not read the audio file.")
+            st.stop()
+        if audio is not None and len(audio[0]) < MIN_AUDIO_S * audio[1]:
+            st.error(f"The audio is too short to judge (need at least {MIN_AUDIO_S} s).")
+            st.stop()
         video = None
         if video_file:
             with tempfile.NamedTemporaryFile(suffix=os.path.splitext(video_file.name)[1], delete=False) as tmp:
@@ -62,7 +73,11 @@ with tab_inspect:
                 st.error(str(e))
             finally:
                 os.unlink(tmp.name)
-        d = evaluate(audio, video, analyzer=AudioAnalyzer("models/voice_model.joblib"))
+        if audio is None and video is None:
+            st.stop()
+        analyzer = AudioAnalyzer(os.environ.get("LIVENESS_MODEL", MODELS / "voice_model.joblib"),
+                                 os.environ.get("LIVENESS_MODEL_16K", MODELS / "voice_model_asvspoof.joblib"))
+        d = evaluate(audio, video, analyzer=analyzer)
         color = {"PASS": "green", "STEP_UP": "orange", "REJECT": "red"}[d.decision]
         st.markdown(f"### :{color}[{d.decision}] · risk {d.risk:.2f}")
         for c in d.as_dict()["checks"]:

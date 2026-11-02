@@ -128,11 +128,14 @@ def check_responses(payload: dict, onsets: list[float], yaw: list[str] | None, f
                 want = USER_TO_IMAGE[c.value]
                 lo, hi = int((c.t + TURN_WINDOW[0]) * fps), int((c.t + TURN_WINDOW[1]) * fps)
                 window = yaw[lo:hi]
-                ok = sum(1 for y in window if y == want) >= 3 or (
-                    # profile cascades miss many real turns; a clear frontal dropout counts as weak evidence
-                    sum(1 for y in window if y == "front") < 0.3 * max(len(window), 1)
-                    and sum(1 for y in window if y == USER_TO_IMAGE["left" if c.value == "right" else "right"]) < 2
-                )
+                if len(window) < 0.8 * (hi - lo):
+                    ok = False  # the recording ends before the cue was answered: a miss, not a pass
+                else:
+                    ok = sum(1 for y in window if y == want) >= 3 or (
+                        # profile cascades miss many real turns; a clear frontal dropout counts as weak evidence
+                        sum(1 for y in window if y == "front") < 0.3 * len(window)
+                        and sum(1 for y in window if y == USER_TO_IMAGE["left" if c.value == "right" else "right"]) < 2
+                    )
             results.append({**asdict(c), "passed": ok})
 
     speak = [r for r in results if r["kind"] == "speak"]

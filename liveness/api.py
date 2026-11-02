@@ -16,10 +16,11 @@ from starlette.concurrency import run_in_threadpool
 from . import db, ops
 from .audio import AudioAnalyzer, load_audio
 from .challenge import ChallengeError, ChallengeService
-from .pipeline import evaluate
+from .pipeline import evaluate, json_safe
 from .rppg import analyze_traces, extract_video
 
 MAX_UPLOAD = 40 * 1024 * 1024
+MIN_AUDIO_S = 0.5  # nothing about a voice can be judged from less
 ROOT = Path(__file__).resolve().parent.parent
 log = logging.getLogger("liveness.api")
 
@@ -30,7 +31,7 @@ challenges = ChallengeService(settings.secret["CHALLENGE_KEY"], engine=store,
                               previous_keys=settings.previous["CHALLENGE_KEY"])
 analyzer = AudioAnalyzer(os.environ.get("LIVENESS_MODEL", ROOT / "models" / "voice_model.joblib"),
                          os.environ.get("LIVENESS_MODEL_16K", ROOT / "models" / "voice_model_asvspoof.joblib"))
-app = FastAPI(title="KYC Liveness Guard", version="1.0.0")
+app = FastAPI(title="KYC Liveness Guard", version="1.0.1")
 ops.install(app, settings, {"database": lambda: store.connect().close(),
                             "voice_model_16k": lambda: analyzer.narrowband is not None})
 log.info("voice engines", extra={"fields": {"wideband": "model+rules" if analyzer.model else "rules",
@@ -58,9 +59,12 @@ def _video_from_bytes(data: bytes, suffix: str, duration: float | None):
 
 def _audio_from_bytes(data: bytes):
     try:
-        return load_audio(data)
+        x, sr = load_audio(data)
     except Exception:  # soundfile raises its own error types
         raise HTTPException(422, "unreadable audio") from None
+    if len(x) < MIN_AUDIO_S * sr:
+        raise HTTPException(422, f"audio too short (need at least {MIN_AUDIO_S} s)")
+    return x, sr
 
 
 def _suffix(name: str | None, default: str) -> str:
@@ -113,7 +117,7 @@ async def analyze_audio(audio: UploadFile = File(...), ident: dict = Depends(ops
     data = await _read(audio)
     rep = await run_in_threadpool(lambda: analyzer.analyze(*_audio_from_bytes(data)))
     return {"risk": round(rep.risk, 3), "engine": rep.source, "reasons": rep.reasons,
-            "features": {k: v for k, v in rep.features.items() if not k.startswith("mfcc")}}
+            "features": json_safe({k: v for k, v in rep.features.items() if not k.startswith("mfcc")})}
 
 
 @app.post("/v1/analyze/video")

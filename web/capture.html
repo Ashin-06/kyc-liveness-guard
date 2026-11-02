@@ -92,12 +92,16 @@ function cueText(c) {
   return c.value === "left" ? "← Turn your head left" : "Turn your head right →";
 }
 
+// FastAPI sends a string detail for refusals and a list for validation errors
+const detail = (body, fallback) => (typeof body.detail === "string" ? body.detail : fallback);
+const esc = (s) => String(s).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
+
 function render(res) {
   const label = { PASS: "Verified", STEP_UP: "Needs manual review", REJECT: "Not verified" }[res.decision];
   const items = res.checks.map((c) => `
-    <li><span class="pill ${c.status}">${c.status}</span><strong>${c.name}</strong>
+    <li><span class="pill ${esc(c.status)}">${esc(c.status)}</span><strong>${esc(c.name)}</strong>
       ${c.risk === null ? "" : `<span style="color:var(--muted)"> · risk ${c.risk.toFixed(2)}</span>`}
-      ${c.reasons.map((r) => `<div class="reason">${r}</div>`).join("")}</li>`).join("");
+      ${c.reasons.map((r) => `<div class="reason">${esc(r)}</div>`).join("")}</li>`).join("");
   $("result").innerHTML = `<div class="verdict ${res.decision}">${label}</div><ul class="checks">${items}</ul>`;
 }
 
@@ -106,15 +110,29 @@ async function run() {
   $("result").innerHTML = "";
   let stream;
   try {
+    await check((s) => (stream = s));
+  } catch (e) {  // network failure, a proxy's HTML error page, an audio worklet that won't load...
+    console.error(e);
+    $("status").textContent = "Something went wrong while checking. Please try again.";
+  } finally {
+    if (stream) stream.getTracks().forEach((t) => t.stop());  // never leave the camera on
+    $("cue").textContent = "";
+    $("start").disabled = false;
+  }
+}
+
+async function check(keep) {
+  let stream;
+  try {
     stream = await navigator.mediaDevices.getUserMedia({
       video: { width: 640, height: 480, frameRate: 30, facingMode: "user" },
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
     });
   } catch (e) {
     $("status").textContent = "Could not open camera/microphone: " + e.message;
-    $("start").disabled = false;
     return;
   }
+  keep(stream);
   $("preview").srcObject = stream;
   $("status").textContent = "Get ready…";
   let r = await fetch("/v1/challenge", { method: "POST", headers: auth() });
@@ -124,9 +142,7 @@ async function run() {
   }
   const ch = await r.json();
   if (!r.ok) {
-    $("status").textContent = ch.detail || "Could not start the check";
-    stream.getTracks().forEach((t) => t.stop());
-    $("start").disabled = false;
+    $("status").textContent = detail(ch, "Could not start the check");
     return;
   }
   await sleep(1200);
@@ -178,12 +194,11 @@ async function run() {
   const resp = await fetch("/v1/verify", { method: "POST", body: form, headers: auth() });
   const body = await resp.json();
   if (!resp.ok) {
-    $("status").textContent = body.detail || "Verification failed";
+    $("status").textContent = detail(body, "Verification failed");
   } else {
     $("status").textContent = "Done.";
     render(body);
   }
-  $("start").disabled = false;
   $("start").textContent = "Try again";
 }
 

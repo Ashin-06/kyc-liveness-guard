@@ -15,25 +15,36 @@ import argparse
 import json
 import os
 import sys
+from pathlib import Path
 
 from .audio import AudioAnalyzer, load_audio
 from .pipeline import evaluate
 from .rppg import extract_video
+
+MODELS = Path(__file__).resolve().parent.parent / "models"  # the same files the API loads, wherever this runs from
+
+
+def _positive(v: str) -> int:
+    if int(v) < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return int(v)
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="liveness")
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("redteam", help="run synthetic attack benchmark")
-    r.add_argument("--trials", type=int, default=25)
+    r.add_argument("--trials", type=_positive, default=25)
     r.add_argument("--json", help="write full results here")
     a = sub.add_parser("audio", help="score a voice recording")
     a.add_argument("file")
-    a.add_argument("--model", default="models/voice_model.joblib")
     v = sub.add_parser("video", help="score a face video (optionally with its audio)")
     v.add_argument("file")
     v.add_argument("--audio")
     v.add_argument("--duration", type=float)
+    for p in (a, v):
+        p.add_argument("--model", default=os.environ.get("LIVENESS_MODEL", MODELS / "voice_model.joblib"))
+        p.add_argument("--model-16k", default=os.environ.get("LIVENESS_MODEL_16K", MODELS / "voice_model_asvspoof.joblib"))
     sub.add_parser("train", help="train the voice classifier", add_help=False)
     sub.add_parser("realdata", help="train/test on ASVspoof 2019 LA parquet files", add_help=False)
     sub.add_parser("realface", help="pulse check on real faces (MCD-rPPG)", add_help=False)
@@ -43,6 +54,9 @@ def main(argv=None):
     sub.add_parser("migrate", help="apply database migrations to LIVENESS_DATABASE_URL")
 
     args, rest = ap.parse_known_args(argv)
+    if rest and args.cmd not in ("train", "realdata", "realface"):  # those parse their own options
+        ap.error(f"unrecognized arguments: {' '.join(rest)}")
+    sys.argv[0] = f"liveness {args.cmd}"  # usage lines of the subcommands that parse their own options
     if args.cmd == "redteam":
         from .redteam import run, table
 
@@ -52,12 +66,13 @@ def main(argv=None):
             with open(args.json, "w") as f:
                 json.dump(res, f, indent=2)
     elif args.cmd == "audio":
-        rep = AudioAnalyzer(args.model).analyze(*load_audio(args.file))
+        rep = AudioAnalyzer(args.model, args.model_16k).analyze(*load_audio(args.file))
         print(f"risk {rep.risk:.2f} ({rep.source})")
         for reason in rep.reasons:
             print(" -", reason)
     elif args.cmd == "video":
-        d = evaluate(load_audio(args.audio) if args.audio else None, extract_video(args.file, args.duration))
+        d = evaluate(load_audio(args.audio) if args.audio else None, extract_video(args.file, args.duration),
+                     analyzer=AudioAnalyzer(args.model, args.model_16k))
         print(json.dumps(d.as_dict(), indent=2, default=float))
     elif args.cmd == "train":
         from .train import main as train

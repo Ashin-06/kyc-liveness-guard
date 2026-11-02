@@ -107,7 +107,8 @@ def analyze_traces(traces: dict[str, np.ndarray], fps: float, background: np.nda
     bg_corr = None
     if background is not None and len(background) == len(combined):
         # a flat background (blown-out white, black) has no rhythm at all: correlation 0, not NaN
-        bg_corr = float(np.nan_to_num(abs(np.corrcoef(combined, bandpass(pos(background, fps), fps))[0, 1])))
+        with np.errstate(invalid="ignore", divide="ignore"):
+            bg_corr = float(np.nan_to_num(abs(np.corrcoef(combined, bandpass(pos(background, fps), fps))[0, 1])))
         if bg_corr > BG_CORR_MAX:
             score += 3.0
             reasons.append(f"the same rhythm shows off the face (r={bg_corr:.2f}): flicker or a screen, not blood flow")
@@ -131,7 +132,8 @@ def _roi(box, fx0, fy0, fx1, fy1):
     return int(x + fx0 * w), int(y + fy0 * h), int(x + fx1 * w), int(y + fy1 * h)
 
 
-def extract_video(path: str | Path, duration_hint: float | None = None, max_frames: int = 900, start_frame: int = 0) -> VideoTraces:
+def extract_video(path: str | Path, duration_hint: float | None = None, max_frames: int = 1200, start_frame: int = 0) -> VideoTraces:
+    """Traces from the first `max_frames` frames (1200 covers the longest challenge, 20 s, at 60 fps)."""
     import cv2
 
     cap = cv2.VideoCapture(str(path))
@@ -141,21 +143,26 @@ def extract_video(path: str | Path, duration_hint: float | None = None, max_fram
         if not cap.grab():
             break
 
+    skipped = [0]
+
     def frames():
         for _ in range(max_frames):
             ok, frame = cap.read()
             if not ok:
                 return
             yield frame
+        while cap.grab():  # frames past the cap aren't analysed, but the frame rate needs the total
+            skipped[0] += 1
 
     try:
-        return extract_frames(frames(), cap.get(cv2.CAP_PROP_FPS), duration_hint)
+        return extract_frames(frames(), cap.get(cv2.CAP_PROP_FPS), duration_hint, lambda: skipped[0])
     finally:
         cap.release()
 
 
-def extract_frames(frames, fps: float, duration_hint: float | None = None) -> VideoTraces:
-    """Region colour traces, mouth motion and head direction from BGR frames."""
+def extract_frames(frames, fps: float, duration_hint: float | None = None, frames_not_read=lambda: 0) -> VideoTraces:
+    """Region colour traces, mouth motion and head direction from BGR frames.
+    `frames_not_read()` is how many more frames the clip had after the last one given."""
     import cv2
 
     frontal = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
@@ -202,9 +209,11 @@ def extract_frames(frames, fps: float, duration_hint: float | None = None) -> Vi
     n = len(yaw)
     if n < 30:
         raise ValueError("video too short for liveness analysis (need at least 30 frames)")
-    # MediaRecorder webm files often carry no usable fps; trust the client duration instead
-    if duration_hint and (not fps or fps < 5 or fps > 120 or abs(n / fps - duration_hint) > 1.0):
-        fps = n / duration_hint
+    # MediaRecorder webm files often carry no usable fps; trust the client duration instead.
+    # The duration covers the whole clip, so it is compared with every frame in it, not only those read.
+    total = n + frames_not_read()
+    if duration_hint and (not fps or fps < 5 or fps > 120 or abs(total / fps - duration_hint) > 1.0):
+        fps = total / duration_hint
     fps = fps if fps and 5 <= fps <= 120 else 30.0
 
     def fill(a):
