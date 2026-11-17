@@ -13,6 +13,20 @@ A check that looks at one thing, such as a blink or a voice match, can be beaten
 
 The challenge needs no speech recognition. The server decides when each cue appears, and a recording made earlier cannot know that schedule. Challenge tokens are signed, expire after 3 minutes and can be used once.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    A["Browser Capture (Webcam + Mic)"] --> B["Signed Timed Challenge Verifier"]
+    A --> C["Voice Acoustics & ASVspoof Classifier"]
+    A --> D["rPPG Forehead/Cheek Skin Pulse Extractor"]
+    A --> E["Audio-Visual Lip-Sync Correlator"]
+    B & C & D & E --> F["Multi-Signal Risk Fusion Engine"]
+    F --> G1["PASS (Low Risk)"]
+    F --> G2["STEP_UP (Human Review)"]
+    F --> G3["REJECT (Spoof Detected)"]
+```
+
 ## Quick start
 
 ```bash
