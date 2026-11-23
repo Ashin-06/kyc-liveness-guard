@@ -31,7 +31,7 @@ numpy==2.5.4
     #   soundfile
 opencv-python-headless==4.14.0.94
     # via kyc-liveness-guard (pyproject.toml)
-opentelemetry-api==1.45.1
+opentelemetry-api==1.45.2
     # via fastapi
 prometheus-client==0.26.0
     # via kyc-liveness-guard (pyproject.toml)

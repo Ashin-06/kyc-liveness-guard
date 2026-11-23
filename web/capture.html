@@ -100,9 +100,9 @@ function render(res) {
   const label = { PASS: "Verified", STEP_UP: "Needs manual review", REJECT: "Not verified" }[res.decision];
   const items = res.checks.map((c) => `
     <li><span class="pill ${esc(c.status)}">${esc(c.status)}</span><strong>${esc(c.name)}</strong>
-      ${c.risk === null ? "" : `<span style="color:var(--muted)"> · risk ${c.risk.toFixed(2)}</span>`}
+      ${c.risk === null ? "" : `<span style="color:var(--muted)"> · risk ${esc(c.risk.toFixed(2))}</span>`}
       ${c.reasons.map((r) => `<div class="reason">${esc(r)}</div>`).join("")}</li>`).join("");
-  $("result").innerHTML = `<div class="verdict ${res.decision}">${label}</div><ul class="checks">${items}</ul>`;
+  $("result").innerHTML = `<div class="verdict ${esc(res.decision)}">${esc(label)}</div><ul class="checks">${items}</ul>`;
 }
 
 async function run() {
